@@ -1,5 +1,7 @@
 {
     "terminal.integrated.defaultProfile.osx": "bash",
     "terminal.integrated.shellIntegration.enabled": false,
-    "terminal.integrated.suggest.enabled": true
+    "terminal.integrated.suggest.enabled": true,
+    "markdown.preview.scrollPreviewWithEditor":true,
+    "markdown.preview.scrollEditorWithPreview":true
 }
