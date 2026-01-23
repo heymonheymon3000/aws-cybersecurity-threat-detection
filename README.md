@@ -48,6 +48,8 @@ Prepare network traffic data to train a machine learning model for cybersecurity
 * Create **notebook instance**
 ![alt text](create-notebook-instance.png)
 ![alt text](create-notebook-instance2.png)
+* Create notebook instance and make sure the status InService, then click the Open Jupyter button
+![alt text](create-notebook-instance3.png)
 
 #### 3. Download & Upload a Public Dataset to S3
 * **UNSW_NB15_training-set.csv** is a real-world data public dataset from UNSW-NB15 for threat detection, which contains normal and malicious network activities.
@@ -58,29 +60,75 @@ Prepare network traffic data to train a machine learning model for cybersecurity
 ![alt text](create-bucket3.png)
 * Upload **UNSW_NB15_training-set.csv** to the raw-data folder.
 ![alt text](create-bucket4.png)
+* Before processing the data, we need to understand it. What features exist, how many records there are, and whether labels are balanced.
 
-```python
-import boto3
-import pandas as pd
-import io
-​
-# Setup S3 client
-s3_client = boto3.client('s3')
-​
-# Download the file into memory
-response = s3_client.get_object(Bucket='cybersecurity-ml-data1', Key='raw-data/UNSW_NB15_training-set.csv')
-​
-# Read it into pandas
-df = pd.read_csv(io.BytesIO(response['Body'].read()))
-​
-# Explore
-print(df.shape)
-print(df.columns)
-print(df.head())
-print(df['label'].value_counts())
-```
+    ```python
+    import boto3
+    import pandas as pd
+    import io
+    ​  
+    # Setup S3 client
+    s3_client = boto3.client('s3')
+    ​
+    # Bucket name
+    bucket = 'tparrish-cybersecurity-ml-data'
+
+    # Download the file into memory
+    response = s3_client.get_object(Bucket=bucket, Key='raw-data/UNSW_NB15_training-set.csv')
+    ​
+    # Read it into pandas
+    df = pd.read_csv(io.BytesIO(response['Body'].read()))
+    ​
+    # Explore
+    print(df.shape)
+    print(df.columns)
+    print(df.head())
+    print(df['label'].value_counts())
+    ```
 
 #### 4. Load & Explore the Dataset in SageMaker
+* Create a new notebook file
+
+    ![alt text](notebook.png)
+* Select conda_python3 as the kernel
+
+    ![alt text](notebook1.png)
+* Rename the file to data_preprocessing.ipynb
+
+    ![alt text](notebook2.png)
+* File name changed to data_preprocessing.ipynb
+
+    ![alt text](notebook3.png)
+* Paste the code below in data_preprocessing.ipynb:
+    ```python
+    import boto3
+    import pandas as pd
+    import io
+    ​  
+    # Setup S3 client
+    s3_client = boto3.client('s3')
+    ​
+    # Bucket name
+    bucket = 'tparrish-cybersecurity-ml-data'
+
+    # Download the file into memory
+    response = s3_client.get_object(Bucket=bucket, Key='raw-data/UNSW_NB15_training-set.csv')
+    ​
+    # Read it into pandas
+    df = pd.read_csv(io.BytesIO(response['Body'].read()))
+    ​
+    # Explore
+    print(df.shape)
+    print(df.columns)
+    print(df.head())
+    print(df['label'].value_counts())
+    ```
+
+
+
+
+
+
 #### 5. Clean, Feature Engineer, Encode, and Normalize Data
 #### 6. Save the Preprocessed Data to S3
 
