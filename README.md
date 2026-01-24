@@ -564,8 +564,8 @@ Deploy the trained model on Amazon SageMaker and expose it as an API endpoint fo
     ![alt text](design/image-20.png)
 
 ## 4. Automating with SageMaker Pipelines
-This step connects all the earlier parts of our project into one automated, production-grade ML workflow. It automates the entire machine learning workflow, including data preprocessing, training, evaluation, and deployment using Amazon SageMaker Pipelines.
-It transitions our project from: Manual development/testing to Automated pipeline orchestration using Amazon SageMaker Pipelines, Lambda, and EventBridge.
+This step connects all the earlier parts of our project into one automated, production-grade ML workflow. It automates the entire machine learning workflow, including **data preprocessing, training, evaluation,** and **deployment** using **Amazon SageMaker Pipelines**.
+It transitions our project from: Manual development/testing to Automated pipeline orchestration using **Amazon SageMaker Pipelines, Lambda, and EventBridge**.
 
 Amazon SageMaker Pipelines is a workflow automation tool that helps:
 * Streamline data preprocessing, model training, and deployment.
@@ -580,8 +580,114 @@ Amazon SageMaker Pipelines is a workflow automation tool that helps:
 * [Test the Automation](#5-test-the-automation)
 
 #### 1. Define the SageMaker Pipeline Workflow
+**Steps in Our ML Pipeline**
+* **Data Processing Step →** Load & preprocess raw data (S3 storage).
+* **Training Step →** Train XGBoost model on preprocessed data.
+* **Evaluation Step →** Check model performance (Accuracy, F1-score).
+* **Conditional Deployment Step →** Deploy the model only if it meets accuracy requirements.
 #### 2. Create a SageMaker Pipeline Definition
+* Paste the below code in the notebook for Automated SageMaker pipeline and click Run We define a pipeline that includes data preprocessing, training, evaluation, and deployment.
+    ```python
+    # SageMaker Pipeline
+    import boto3
+    import sagemaker
+    from sagemaker.workflow.pipeline import Pipeline
+    from sagemaker.workflow.steps import TrainingStep
+    from sagemaker.workflow.parameters import ParameterString
+    from sagemaker.inputs import TrainingInput
+    from sagemaker import image_uris
+    ​
+    # Setup
+    session = sagemaker.Session()
+    role = sagemaker.get_execution_role()
+    bucket = 'tparrish-cybersecurity-ml-data'
+    ​
+    # Parameters
+    training_instance_type = ParameterString(
+        name="TrainingInstanceType", 
+        default_value="ml.m5.large"
+    )
+    ​
+    # Use built-in XGBoost (same as your step 3.3)
+    xgb_estimator = sagemaker.estimator.Estimator(
+        image_uri=image_uris.retrieve("xgboost", session.boto_region_name, version="1.3-1"),
+        role=role,
+        instance_count=1,
+        instance_type=training_instance_type,
+        output_path=f's3://{bucket}/pipeline-model-output/',
+        hyperparameters={
+            'objective': 'binary:logistic',
+            'num_round': 100,
+            'max_depth': 5,
+            'eta': 0.2,
+            'gamma': 4,
+            'min_child_weight': 6,
+            'subsample': 0.8,
+            'verbosity': 1
+        }
+    )
+    ​
+    # Training Step
+    step_train = TrainingStep(
+        name="TrainCybersecurityModel",
+        estimator=xgb_estimator,
+        inputs={
+            "train": TrainingInput(
+                s3_data=f's3://{bucket}/xgboost-data/train/train.libsvm',
+                content_type="text/libsvm"
+            ),
+            "validation": TrainingInput(
+                s3_data=f's3://{bucket}/xgboost-data/test/test.libsvm',
+                content_type="text/libsvm"
+            )
+        }
+    )
+    ​
+    # Create Pipeline
+    pipeline = Pipeline(
+        name="simple-cybersecurity-pipeline",
+        parameters=[training_instance_type],
+        steps=[step_train],
+        sagemaker_session=session,
+    )
+    ​
+    # Run Pipeline
+    def run_pipeline():
+        pipeline.upsert(role_arn=role)
+        print("Pipeline created successfully!")
+        
+        execution = pipeline.start()
+        print(f"Pipeline execution started: {execution.arn}")
+        return execution
+    ​
+    print("Automated pipeline ready! Run: execution = run_pipeline()")
+    ```
+    ![alt text](design/execute-pipeline.png)
+
+This pipeline automates the machine learning workflow for cybersecurity threat detection by creating a reusable, one-click training process
+
+**What the Pipeline Does:**
+* **Automated Training:** Automatically trains the XGBoost model using your preprocessed cybersecurity data from S3, eliminating the need to manually run training jobs.
+
+* **Consistent Results:** Ensures the same hyperparameters and data sources are used every time, providing reproducible model training.
+
+* **Parameterized Workflow:** Allows easy modification of training instance types and other parameters without changing the core pipeline code.
+
+* **Scalable Process:** Can be easily re-run when new threat data becomes available, enabling continuous model updates as cybersecurity patterns evolve.
+
 #### 3. Trigger the Pipeline Execution
+* Once the pipeline is defined, we trigger execution to run the entire workflow in the next cell:
+    ```python
+    execution = run_pipeline()
+    print("SageMaker Pipeline Execution Started!")
+    ```
+    ![alt text](design/pipeline-execution-started.png)
+    ```python
+    status = execution.describe()['PipelineExecutionStatus']
+    print(f"Pipeline Status: {status}")
+    ```
+    ![alt text](design/status.png)
+    ![alt text](design/status1.png)
 #### 4. Automate Retraining with AWS EventBridge
 #### 5. Test the Automation
 
