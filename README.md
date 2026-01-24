@@ -477,7 +477,7 @@ Deploy the trained model on Amazon SageMaker and expose it as an API endpoint fo
     image_uri = image_uris.retrieve("xgboost", region=region, version="1.3-1")
     ​
     # Use actual IAM Role ARN
-    execution_role = "arn:aws:iam::421613839447:role/SageMakerCybersecurityRole"
+    execution_role = "arn:aws:iam::<ACCOUNT#>:role/SageMakerCybersecurityRole"
     ​
     # Register the model
     response = sagemaker_client.create_model(
@@ -736,14 +736,14 @@ This pipeline automates the machine learning workflow for cybersecurity threat d
 
 * Create EventBridge Rule
 
-    ![alt text](image.png)
-    ![alt text](image-1.png)
+    ![alt text](design/image-100.png)
+    ![alt text](design/image-101.png)
 
 #### 5. Test the Automation
 * Enable S3 Event Notifications
 
-    ![alt text](image-2.png)
-    ![alt text](image-3.png)
+    ![alt text](design/image-102.png)
+    ![alt text](design/image-103.png)
 
 * Test the Setup - Create a test file in your notebook:
     ```python
@@ -763,8 +763,8 @@ This pipeline automates the machine learning workflow for cybersecurity threat d
     print("Test file uploaded! Check Lambda logs to see if pipeline triggered.")
     ```
 
-    ![alt text](image-4.png)
-    ![alt text](image-5.png)
+    ![alt text](design/image-104.png)
+    ![alt text](design/image-105.png)
 
 ## ☁️ AWS Architecture
 ![alt text](design/architect-diagram-1.png)
@@ -773,15 +773,15 @@ This pipeline automates the machine learning workflow for cybersecurity threat d
 * **What This Automation Does:**
 
     1. **New Data Arrives →** File uploaded to s3://tparrish-cybersecurity-ml-data/new-data/
-    ![alt text](image-6.png)
+    ![alt text](design/image-106.png)
 
     2. **S3 Notifies EventBridge →** S3 sends event to EventBridge
 
     3. **EventBridge Triggers Lambda →** Lambda function receives the event
-    ![alt text](image-7.png)
+    ![alt text](design/image-107.png)
 
     4. **Lambda Starts Pipeline →** Your SageMaker pipeline begins training
-    ![alt text](image-8.png)
+    ![alt text](design/image-108.png)
     
     5. **Automatic Retraining →** Model updates without manual intervention
-    ![alt text](image-9.png)
+    ![alt text](design/image-109.png)
