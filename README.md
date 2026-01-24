@@ -689,9 +689,99 @@ This pipeline automates the machine learning workflow for cybersecurity threat d
     ![alt text](design/status.png)
     ![alt text](design/status1.png)
 #### 4. Automate Retraining with AWS EventBridge
+* Create Lambda function
+
+    ![alt text](design/create-lambda-function.png)
+
+    ```python
+    import json
+    import boto3
+    ​
+    def lambda_handler(event, context):
+    # Initialize SageMaker client
+        sagemaker_client = boto3.client("sagemaker")
+    ​
+        try:
+    # Start your pipeline
+            response = sagemaker_client.start_pipeline_execution(
+                PipelineName="simple-cybersecurity-pipeline"# Your pipeline name
+            )
+    ​
+            print(f"Pipeline started: {response['PipelineExecutionArn']}")
+    ​
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "Pipeline execution started successfully",
+                    "executionArn": response['PipelineExecutionArn']
+                })
+            }
+    ​
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            return {
+                "statusCode": 500,
+                "body": json.dumps(f"Error starting pipeline: {str(e)}")
+            }
+    ```
+* Deploy the lambda function
+
+    ![alt text](design/create-lambda-function1.png)
+* Open the lambda execution role
+
+    ![alt text](design/create-lambda-function2.png)
+* Add AmazonS3FullAccess policy the lambda function
+
+    ![alt text](design/create-lambda-function3.png)
+
+* Create EventBridge Rule
+
+    ![alt text](image.png)
+    ![alt text](image-1.png)
+
 #### 5. Test the Automation
+* Enable S3 Event Notifications
+
+    ![alt text](image-2.png)
+    ![alt text](image-3.png)
+
+* Test the Setup - Create a test file in your notebook:
+    ```python
+    # Test automation
+    import boto3
+    ​
+    s3_client = boto3.client('s3')
+    ​
+    # Upload a test file to trigger the pipeline
+    test_content = "This is test data for pipeline automation"
+    s3_client.put_object(
+        Bucket='tparrish-cybersecurity-ml-data',
+        Key='new-data/test-trigger.txt',
+        Body=test_content
+    )
+    ​
+    print("Test file uploaded! Check Lambda logs to see if pipeline triggered.")
+    ```
+
+    ![alt text](image-4.png)
+    ![alt text](image-5.png)
 
 ## ☁️ AWS Architecture
-
+![alt text](design/architect-diagram-1.png)
 
 ## &rarr; Final Result
+* **What This Automation Does:**
+
+    1. **New Data Arrives →** File uploaded to s3://tparrish-cybersecurity-ml-data/new-data/
+    ![alt text](image-6.png)
+
+    2. **S3 Notifies EventBridge →** S3 sends event to EventBridge
+
+    3. **EventBridge Triggers Lambda →** Lambda function receives the event
+    ![alt text](image-7.png)
+
+    4. **Lambda Starts Pipeline →** Your SageMaker pipeline begins training
+    ![alt text](image-8.png)
+    
+    5. **Automatic Retraining →** Model updates without manual intervention
+    ![alt text](image-9.png)
