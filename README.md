@@ -36,30 +36,30 @@ Prepare network traffic data to train a machine learning model for cybersecurity
 
 #### 1. Create an IAM Role for SageMaker
 * Navigate to **IAM console** and create a role called **SageMakerCybersecurityRole**
-![alt text](create-sagemaker-role.png)
+![alt text](design/create-sagemaker-role.png)
 * Make sure the **SageMakerCybersecurityRole** has **AmazonSageMakerFullAccess** and **AmazonS3FullAccess**
-![alt text](create-sagemaker-role-with-S3-policy.png)
+![alt text](design/create-sagemaker-role-with-S3-policy.png)
 * This gives **SageMaker** the permissions required to access the **S3 bucket**
 
 #### 2. Set up Amazon SageMaker Notebook Instance
 * Navigate to **Amazon SageMaker AI**
 
-    ![alt text](amazon-sagemaker-ai-nav.png)
+    ![alt text](design/amazon-sagemaker-ai-nav.png)
 * Create **notebook instance**
-![alt text](create-notebook-instance.png)
-![alt text](create-notebook-instance2.png)
+![alt text](design/create-notebook-instance.png)
+![alt text](design/create-notebook-instance2.png)
 * Create notebook instance and make sure the status InService, then click the Open Jupyter button
-![alt text](create-notebook-instance3.png)
+![alt text](design/create-notebook-instance3.png)
 
 #### 3. Download & Upload a Public Dataset to S3
 * **UNSW_NB15_training-set.csv** is a real-world data public dataset from UNSW-NB15 for threat detection, which contains normal and malicious network activities.
 * Navigate to the S3 console and create a bucket.  Leave all other settings as default.
-![alt text](create-bucket.png)
-![alt text](create-bucket2.png)
+![alt text](design/create-bucket.png)
+![alt text](design/create-bucket2.png)
 * Navigate into the bucket that was just created and create a folder called raw-data.
-![alt text](create-bucket3.png)
+![alt text](design/create-bucket3.png)
 * Upload **UNSW_NB15_training-set.csv** to the raw-data folder.
-![alt text](create-bucket4.png)
+![alt text](design/create-bucket4.png)
 * Before processing the data, we need to understand it. What features exist, how many records there are, and whether labels are balanced.
 
     ```python
@@ -89,16 +89,16 @@ Prepare network traffic data to train a machine learning model for cybersecurity
 #### 4. Load & Explore the Dataset in SageMaker
 * Create a new notebook file
 
-    ![alt text](notebook.png)
+    ![alt text](design/notebook.png)
 * Select conda_python3 as the kernel
 
-    ![alt text](notebook1.png)
+    ![alt text](design/notebook1.png)
 * Rename the file to data_preprocessing.ipynb
 
-    ![alt text](notebook2.png)
+    ![alt text](design/notebook2.png)
 * File name changed to data_preprocessing.ipynb
 
-    ![alt text](notebook3.png)
+    ![alt text](design/notebook3.png)
 * Paste the code below in data_preprocessing.ipynb:
     ```python
     import boto3
@@ -124,13 +124,135 @@ Prepare network traffic data to train a machine learning model for cybersecurity
     print(df['label'].value_counts())
     ```
 
+* **'label`** column represents whether the traffic is normal (0) or malicious (1).
+* Exploring the data helps identify cleaning and preprocessing needs.
 
-
-
-
-
+    ![alt text](design/explore-results.png)
+    
 #### 5. Clean, Feature Engineer, Encode, and Normalize Data
+* Prepare the dataset so that our ML models can use it effectively. This step combines data cleaning, feature engineering, categorical encoding, and numerical scaling.
+
+    **1. Drop irrelevant columns**
+
+    - **id** is just a row number and has no predictive value.
+    -  **attack_cat** is a more detailed attack type label, but for binary classification (label = malicious or normal), it’s not needed.
+
+    **2. Feature engineering (before encoding & scaling)** </br>
+    We create new features from existing ones to help the model detect patterns:
+
+    * **byte_ratio** – Source bytes / (Destination bytes + 1)
+        * Helps detect traffic that’s heavily one-sided.
+        * +1 prevents division by zero.
+
+    * **is_common_port** – 1 if destination port is 80, 443, or 22
+        * Flags traffic over common HTTP/HTTPS/SSH ports.
+
+    * **flow_intensity** – (Source packets + Destination packets) / (Duration + 1e-6)
+        * Measures packet rate; useful for spotting floods or spikes.
+        * Small number (1e-6) prevents division by zero.
+
+    **3. One-hot encode categorical features**
+    - Converts text columns like **proto, service,** and **state** into multiple binary columns.
+    - Each unique category becomes its own column with **1 (present) or 0 (absent)**.
+
+    **4. Convert booleans to integers**
+    - Some one-hot columns might be **True/False**.
+    - We explicitly convert them to **1/0** for compatibility with ML models.
+
+    **5. Scale numerical features**
+    - Standardize all numeric columns except **label** so they have mean 0 and standard deviation 1.
+    - Prevents features with larger ranges (e.g., byte counts) from dominating smaller-range features (e.g., ratios).
+
+    **6. Sanity checks**
+    - Print final dataset shape, column names, a preview of the first rows, and class distribution in **label**. 
+
+ Paste the below code in new cell and Click Run
+```python
+# --- 1. Drop irrelevant columns ---
+df = df.drop(columns=['id', 'attack_cat'])
+​
+# --- 2. Feature engineering BEFORE encoding/scaling ---
+df['byte_ratio'] = df['sbytes'] / (df['dbytes'] + 1)
+df['is_common_port'] = df['ct_dst_sport_ltm'].isin([80, 443, 22]).astype(int)
+df['flow_intensity'] = (df['spkts'] + df['dpkts']) / (df['dur'] + 1e-6)
+​
+# --- 3. One-hot encode categorical columns ---
+categorical_cols = ['proto', 'service', 'state']
+df = pd.get_dummies(df, columns=categorical_cols)
+​
+# --- 4. Convert booleans to ints --
+df = df.astype({col: 'int' for col in df.columns if df[col].dtype == 'bool'})
+​
+# --- 5. Scale numerical features (except label) ---
+from sklearn.preprocessing import StandardScaler
+​
+numerical_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+numerical_cols.remove('label')
+​
+scaler = StandardScaler()
+df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
+​
+# --- 6. Checks ---
+print(df.shape)                                  # Final number of rows & columns
+print(df.head())                                 # Preview first few rows
+print(df.describe().T[['mean', 'std']])          # Confirm scaling stats
+print(df[numerical_cols].mean().round(3))        # Should be ~0
+print(df[numerical_cols].std().round(3))         # Should be ~1
+```
+Run code to clean up data
+
+![alt text](design/cleaning-data.png)
+
+Cleaned up data results
+
+![alt text](design/cleaning-data-results.png)
+
+**Conceptual Notes for Beginners**
+
+* **One-hot encoding**: This takes a column like `proto with values TCP, UDP, and ICMP`, and turns it into 3 new columns - each showing 1 or 0.
+* **StandardScaler**: It transforms values so they have a mean of 0 and standard deviation of 1 useful when features have wildly different units (like packet count vs. byte size).
+
+**Tips for Feature Engineering**
+
+* Always divide by `+1` or add a tiny number to avoid division by zero.
+* Try plotting distributions of these new features — sometimes it helps visualize how well they separate classes.
+
 #### 6. Save the Preprocessed Data to S3
+Dataset is ready, now it can be stored in S3 bucket so it can be accessed later by the ML model.
+* Save your processed dataset locally as CSV
+* Upload it to your S3 bucket using SageMaker’s session utility
+* Paste the below code in new cell and Click Run
+    ```python
+    import sagemaker
+    from sagemaker import get_execution_role
+    ​
+    # Create SageMaker session and define bucket
+    session = sagemaker.Session()
+    bucket = 'tparrish-cybersecurity-ml-data'  # Replace with your actual S3 bucket name
+    processed_prefix = 'processed-data'        # Folder in S3 to store processed files
+    ​
+    # Save preprocessed data locally
+    df.to_csv('preprocessed_data.csv', index=False)
+    ​
+    # Upload to S3 inside the 'processed-data/' folder
+    s3_path = session.upload_data(
+        path='preprocessed_data.csv',
+        bucket=bucket,
+        key_prefix=processed_prefix
+    )
+    ​
+    print(f"Preprocessed data uploaded to: {s3_path}")
+    ```
+* Click run
+
+    ![alt text](design/confirmation-file.png)
+* Confirm file was uploaded to S3 bucket
+
+    ![alt text](design/confirmation-file-upload.png)
+
+* Validate that ‘processed-data.csv' file got uploaded under the ‘processed-data’ folder
+
+    ![alt text](design/validate-s3-bucket-data.png)
 
 ## 2. Training and Testing a Model using XGBoost
 Train a machine learning model (using XGBoost) to classify whether a given network activity is normal or malicious, based on the features extracted in Step 1. Use Amazon SageMaker’s built-in XGBoost algorithm, which makes training efficient and scalable.
@@ -195,16 +317,16 @@ Automate model retraining when new data arrives.
 
 
 <!-- #### Create SageMaker role and add AmazonS3FullAccess policy
-![alt text](design/sageMakerCybersecurityTrustRelationship.png)
-![alt text](design/sageMakerCybersecurityRole.png)
+![alt text](design/design/sageMakerCybersecurityTrustRelationship.png)
+![alt text](design/design/sageMakerCybersecurityRole.png)
 #### Navigate to the sagemaker-ai
-![alt text](design/sagemaker-ai-console.png)
+![alt text](design/design/sagemaker-ai-console.png)
 #### Create cybersecurity-notebook, click Open Jupyter after status is InsService
-![alt text](design/create-cybersecurity-notebook.png)
+![alt text](design/design/create-cybersecurity-notebook.png)
 #### Create bucket and store UNSW_NB15_training-set.csv in s3://cybersecurity-ml-data-demo/raw-data/
-![alt text](design/s3-bucket.png)
+![alt text](design/design/s3-bucket.png)
 #### After running
-![alt text](design/data_preprocessing-output.png)
+![alt text](design/design/data_preprocessing-output.png)
 ## ☁️ AWS Architecture
 
 
