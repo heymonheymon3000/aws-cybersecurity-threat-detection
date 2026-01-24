@@ -254,8 +254,10 @@ Dataset is ready, now it can be stored in S3 bucket so it can be accessed later 
 
     ![alt text](design/validate-s3-bucket-data.png)
 
+* S3 is like your **cloud hard drive**. Storing the preprocessed data there means you can train your model later on **SageMaker** or any cloud environment without redoing all preprocessing steps.
+
 ## 2. Training and Testing a Model using XGBoost
-Train a machine learning model (using XGBoost) to classify whether a given network activity is normal or malicious, based on the features extracted in Step 1. Use Amazon SageMaker’s built-in XGBoost algorithm, which makes training efficient and scalable.
+Train a machine learning model (using **XGBoost**) to classify whether a given network activity is normal or malicious, based on the features extracted in Step 1. Use **Amazon SageMaker’s built-in XGBoost algorithm**, which makes training efficient and scalable.
 
 **Task to be completed in this step** 
 * [Load Preprocessed Data from S3](#1-load-preprocessed-data-from-s3)
@@ -266,11 +268,190 @@ Train a machine learning model (using XGBoost) to classify whether a given netwo
 * [Evaluate Model Performance](#6-evaluate-model-performance)
 
 #### 1. Load Preprocessed Data from S3
+* Paste the below code in new cell and Click Run. This code downloads a preprocessed CSV file from an S3 bucket and loads it into a Pandas DataFrame for inspection.
+    ```python
+    import pandas as pd
+    import boto3
+    import sagemaker
+    ​
+    # Set up session and bucket
+    session = sagemaker.Session()
+    bucket = 'tparrish-cybersecurity-ml-data'
+    processed_prefix = 'processed-data'
+    ​
+    # Download preprocessed data from S3
+    s3 = boto3.client('s3')
+    file_name = 'preprocessed_data.csv'
+    s3.download_file(bucket, f'{processed_prefix}/{file_name}', file_name)
+    ​
+    # Load into pandas
+    df = pd.read_csv(file_name)
+    df.head()
+    ```
+* Result after the run
+
+    ![alt text](design/image.png)
+
 #### 2. Split Data into Train/Test Sets
+* Paste the below code in new cell and Click Run. This code **loads** a preprocessed CSV dataset, splits it into **training** and **testing** sets, saves them as CSV for inspection, and converts them into **LIBSVM** format for use with Amazon SageMaker.
+* **Note: SageMaker’s XGBoost** expects the label column as the first column, and no headers.
+    ```python
+    from sklearn.model_selection import train_test_split
+    from sklearn.datasets import dump_svmlight_file
+    import pandas as pd
+    ​
+    # Load data
+    df = pd.read_csv('preprocessed_data.csv')
+    X = df.drop(columns=['label'])
+    y = df['label']
+    ​
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    ​
+    # CSV for inspection
+    train_df = pd.concat([y_train, X_train], axis=1)
+    test_df = pd.concat([y_test, X_test], axis=1)
+    train_df.to_csv('train.csv', index=False)
+    test_df.to_csv('test.csv', index=False)
+    ​
+    # LIBSVM for SageMaker - fixed version
+    dump_svmlight_file(X_train, y_train.values.ravel(), 'train.libsvm')
+    dump_svmlight_file(X_test, y_test.values.ravel(), 'test.libsvm')
+    ```
+
+    ![alt text](design/image-1.png)
+
 #### 3. Upload Training and Test Data to S3
+* Paste the below code in new cell and Click Run. This code uploads the LIBSVM-formatted training and testing data files to specified paths in an S3 bucket for use with Amazon SageMaker.
+    ```python
+    import sagemaker
+    ​
+    session = sagemaker.Session()
+    bucket = 'tparrish-cybersecurity-ml-data'
+    train_prefix = 'xgboost-data/train'
+    test_prefix = 'xgboost-data/test'
+    ​
+    train_input = session.upload_data('train.libsvm', bucket=bucket, key_prefix=train_prefix)
+    test_input = session.upload_data('test.libsvm', bucket=bucket, key_prefix=test_prefix)
+    ​
+    print(f"Training data: {train_input}")
+    print(f"Testing data: {test_input}")
+    ```
+    ![alt text](design/image-3.png)
+    ![alt text](design/image-2.png)
+
+* Validate your S3 Bucket if the test & train folders got created under the ‘xgboost-data’ folder with respective files
+
+    ![alt text](design/image-4.png)
 #### 4. Set Up the XGBoost Training Job
+* Paste the below code in new cell and Click Run. This code configures an XGBoost estimator in SageMaker by retrieving the appropriate container image, setting training resources and output path, and specifying hyperparameters for a binary classification task.
+    ```python
+    from sagemaker import image_uris
+    from sagemaker.estimator import Estimator
+    ​
+    xgboost_image_uri = image_uris.retrieve("xgboost", region=session.boto_region_name, version="1.3-1")
+    ​
+    xgb = Estimator(
+        image_uri=xgboost_image_uri,
+        role=sagemaker.get_execution_role(),
+        instance_count=1,
+        instance_type='ml.m5.large',
+        output_path=f's3://tparrish-cybersecurity-ml-data/xgboost-model-output',
+        sagemaker_session=session
+    )
+    ​
+    xgb.set_hyperparameters(
+        objective='binary:logistic',
+        num_round=100,
+        max_depth=5,
+        eta=0.2,
+        gamma=4,
+        min_child_weight=6,
+        subsample=0.8,
+        verbosity=1
+    )
+    ```
+    ![alt text](design/image-5.png)
+    
+    
 #### 5. Train the Model
+* This code starts training the XGBoost model on SageMaker using the uploaded training and validation data from S3.
+    ```python
+    # Train using data channels
+    xgb.fit({'train': train_input, 'validation': test_input})
+    ```
+    ![alt text](design/image-6.png)
+    ![alt text](design/image-7.png)    
+    ![alt text](design/image-9.png)
+    ![alt text](design/image-8.png)
+
 #### 6. Evaluate Model Performance
+* Once training is complete, we’ll download the trained model, make predictions on test data, and calculate accuracy.
+* Firstly we need to install **`xgboost`** Python package.
+
+    ```bash
+    !pip install --upgrade cmake - before installing xgboost, need to upgrade cmake
+    ```
+    ```bash
+    !pip install xgboost==3.0.1
+    ```
+    ![alt text](design/image-10.png)
+
+* Paste the below code in new cell and Click Run. This code trains an XGBoost model locally using the same parameters as the SageMaker model and evaluates its performance on the test set by computing accuracy and a classification report.
+    ```python
+    import pandas as pd
+    import xgboost as xgb
+    from sklearn.metrics import accuracy_score, classification_report
+    ​
+    # Load and convert data
+    train_data = pd.read_csv('train.csv', header=None, dtype=str)
+    test_data = pd.read_csv('test.csv', header=None, dtype=str)
+    ​
+    # Convert all columns to numeric
+    train_data = train_data.apply(pd.to_numeric, errors='coerce')
+    test_data = test_data.apply(pd.to_numeric, errors='coerce')
+    ​
+    # Drop any rows with NaNs
+    train_data = train_data.dropna()
+    test_data = test_data.dropna()
+    ​
+    # Split into features (X) and labels (y)
+    X_train = train_data.iloc[:, 1:]
+    y_train = train_data.iloc[:, 0]
+    X_test = test_data.iloc[:, 1:]
+    y_test = test_data.iloc[:, 0]
+    ​
+    # Convert to DMatrix format
+    dtrain = xgb.DMatrix(X_train, label=y_train)
+    dtest = xgb.DMatrix(X_test)
+    ​
+    # Set parameters and train the model
+    params = {
+        "objective": "binary:logistic",
+        "max_depth": 5,
+        "eta": 0.2,
+        "gamma": 4,
+        "min_child_weight": 6,
+        "subsample": 0.8,
+        "verbosity": 1
+    }
+    ​
+    model = xgb.train(params=params, dtrain=dtrain, num_boost_round=100)
+    ​
+    # Predict
+    y_pred_prob = model.predict(dtest)
+    y_pred = [1 if p > 0.5 else 0 for p in y_pred_prob]
+    ​
+    # Evaluate
+    print("Accuracy:", accuracy_score(y_test, y_pred))
+    print("Classification Report:\n", classification_report(y_test, y_pred))
+    ```
+
+    ![alt text](design/image-11.png)
+
+    ![alt text](design/image-12.png)
 
 ## 3. Deploy and Serve the Model
 Deploy the trained model on Amazon SageMaker and expose it as an API endpoint for real-time cybersecurity threat detection.
@@ -281,22 +462,115 @@ Deploy the trained model on Amazon SageMaker and expose it as an API endpoint fo
 * [Test the Deployed Endpoint](#3-test-the-deployed-endpoint)
 
 #### 1. Create a SageMaker Model from the Trained Model Artifact
+* Paste the below code in new cell and Click Run. Before deployment, we register the trained model in SageMaker.
+    ```python
+    import boto3
+    from sagemaker import image_uris
+    ​
+    sagemaker_client = boto3.client("sagemaker")
+    region = "us-east-1"
+    bucket_name = "tparrish-cybersecurity-ml-data"
+    model_artifact = f"s3://tparrish-cybersecurity-ml-data/xgboost-model-output/sagemaker-xgboost-2026-01-24-01-26-38-730/output/model.tar.gz"
+    model_name = "cybersecurity-threat-xgboost"
+    ​
+    # Get XGBoost image URI
+    image_uri = image_uris.retrieve("xgboost", region=region, version="1.3-1")
+    ​
+    # Use actual IAM Role ARN
+    execution_role = "arn:aws:iam::421613839447:role/SageMakerCybersecurityRole"
+    ​
+    # Register the model
+    response = sagemaker_client.create_model(
+        ModelName=model_name,
+        PrimaryContainer={
+            "Image": image_uri,
+            "ModelDataUrl": model_artifact
+        },
+        ExecutionRoleArn=execution_role
+    )
+    ​
+    print(f"Model {model_name} registered successfully in SageMaker!")
+    ```
+
+    ![alt text](design/image-13.png)
+
+    ![alt text](design/image-14.png)
+
 #### 2. Deploy the Model as a SageMaker Endpoint
+* Paste the below code in new cell and Click Run. We now create a real-time endpoint that applications can call for cybersecurity threat detection.
+    ```python
+    # Define model name if not already defined
+    model_name = "cybersecurity-threat-xgboost"
+    ​
+    # Define endpoint configuration
+    endpoint_config_name = "cybersecurity-threat-config"
+    ​
+    sagemaker_client.create_endpoint_config(
+        EndpointConfigName=endpoint_config_name,
+        ProductionVariants=[
+            {
+                "VariantName": "DefaultVariant",
+                "ModelName": model_name,
+                "InstanceType": "ml.m5.large",
+                "InitialInstanceCount": 1,
+                "InitialVariantWeight": 1
+            }
+        ]
+    )
+    ​
+    # Deploy endpoint
+    endpoint_name = "cybersecurity-threat-endpoint"
+    ​
+    sagemaker_client.create_endpoint(
+        EndpointName=endpoint_name,
+        EndpointConfigName=endpoint_config_name
+    )
+    ​
+    print(f"Endpoint '{endpoint_name}' is being deployed. This may take a few minutes...")
+    ```
+    ![alt text](design/image-15.png)
+    ![alt text](design/image-16.png)
+    ![alt text](design/image-17.png)
+    ![alt text](design/image-18.png)
+
 #### 3. Test the Deployed Endpoint
+* Once the endpoint is active, we send a sample request to check if it correctly detects threats.
+    ```python
+    import boto3
+    import numpy as np
+    ​
+    runtime_client = boto3.client("sagemaker-runtime")
+    ​
+    # Sample input in CSV format
+    sample_input = "0.5,0.3,0.8,0.2,0.1,0.6,0.9,0.4"
+    ​
+    # Invoke the endpoint
+    response = runtime_client.invoke_endpoint(
+        EndpointName="cybersecurity-threat-endpoint",  # or use endpoint_name if defined
+        ContentType="text/csv",
+        Body=sample_input
+    )
+    ​
+    # Get prediction from response
+    result = response["Body"].read().decode("utf-8")
+    prediction_score = float(result.strip())
+    ​
+    # Interpret prediction
+    predicted_label = "THREAT" if prediction_score > 0.5 else "SAFE"
+    ​
+    print(f"Prediction: {predicted_label}")
+    ```
+    ![alt text](design/image-19.png)
+    ![alt text](design/image-20.png)
 
 ## 4. Automating with SageMaker Pipelines
 This step connects all the earlier parts of our project into one automated, production-grade ML workflow. It automates the entire machine learning workflow, including data preprocessing, training, evaluation, and deployment using Amazon SageMaker Pipelines.
 It transitions our project from: Manual development/testing to Automated pipeline orchestration using Amazon SageMaker Pipelines, Lambda, and EventBridge.
 
-
-What is Amazon SageMaker Pipelines?
-
 Amazon SageMaker Pipelines is a workflow automation tool that helps:
-
-Streamline data preprocessing, model training, and deployment.
-Maintain version control for models.
-Automate model retraining when new data arrives.
-
+* Streamline data preprocessing, model training, and deployment.
+* Maintain version control for models.
+* Automate model retraining when new data arrives.
 
 **Task to be completed in this step** 
 * [Define the SageMaker Pipeline Workflow](#1-define-the-sagemaker-pipeline-workflow)
@@ -311,31 +585,7 @@ Automate model retraining when new data arrives.
 #### 4. Automate Retraining with AWS EventBridge
 #### 5. Test the Automation
 
-
-
-
-
-
-<!-- #### Create SageMaker role and add AmazonS3FullAccess policy
-![alt text](design/design/sageMakerCybersecurityTrustRelationship.png)
-![alt text](design/design/sageMakerCybersecurityRole.png)
-#### Navigate to the sagemaker-ai
-![alt text](design/design/sagemaker-ai-console.png)
-#### Create cybersecurity-notebook, click Open Jupyter after status is InsService
-![alt text](design/design/create-cybersecurity-notebook.png)
-#### Create bucket and store UNSW_NB15_training-set.csv in s3://cybersecurity-ml-data-demo/raw-data/
-![alt text](design/design/s3-bucket.png)
-#### After running
-![alt text](design/design/data_preprocessing-output.png)
 ## ☁️ AWS Architecture
 
 
 ## &rarr; Final Result
-
-
-
-pip install --upgrade cmake
-!pip install xgboost==3.0.1 -->
-
-
-
